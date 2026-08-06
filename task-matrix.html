@@ -1,0 +1,791 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Task Matrix</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#16202B">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink: #16202B;
+    --panel: #1F2E3D;
+    --panel-2: #24374A;
+    --grid-line: rgba(237,239,242,0.08);
+    --paper: #EDEFF2;
+    --muted: #8FA0AF;
+    --high: #E8623C;
+    --high-dim: rgba(232,98,60,0.18);
+    --med: #E8B93D;
+    --med-dim: rgba(232,185,61,0.18);
+    --low: #4FA9A0;
+    --low-dim: rgba(79,169,160,0.18);
+    --danger: #E8623C;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--ink);
+    color: var(--paper);
+    font-family: 'IBM Plex Mono', monospace;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    padding: 20px 12px 60px;
+  }
+  .app{
+    width:100%;
+    max-width:440px;
+  }
+  .eyebrow{
+    font-size:11px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--muted);
+    margin:0 0 2px;
+  }
+  h1{
+    font-family:'Roboto Slab', serif;
+    font-weight:700;
+    font-size:28px;
+    margin:0 0 4px;
+    letter-spacing:-0.01em;
+  }
+  .subline{
+    color:var(--muted);
+    font-size:12px;
+    margin:0 0 18px;
+  }
+
+  /* Filter pills */
+  .filters{
+    display:flex;
+    gap:6px;
+    flex-wrap:wrap;
+    margin-bottom:14px;
+  }
+  .pill{
+    background: var(--panel);
+    border:1px solid var(--grid-line);
+    color: var(--paper);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px;
+    letter-spacing:0.03em;
+    text-transform:uppercase;
+    padding:8px 12px;
+    border-radius:20px;
+    cursor:pointer;
+    transition: all 0.15s ease;
+  }
+  .pill:hover{ border-color: rgba(237,239,242,0.25); }
+  .pill.active{
+    background: var(--paper);
+    color: var(--ink);
+    border-color: var(--paper);
+    font-weight:600;
+  }
+  .custom-range{
+    display:none;
+    gap:8px;
+    margin: -4px 0 14px;
+  }
+  .custom-range.show{ display:flex; }
+  .custom-range input[type="date"]{
+    flex:1;
+    background: var(--panel);
+    border:1px solid var(--grid-line);
+    color: var(--paper);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    padding:8px;
+    border-radius:8px;
+  }
+
+  /* Chart */
+  .chart-wrap{
+    background: var(--panel);
+    border:1px solid var(--grid-line);
+    border-radius:14px;
+    padding:14px 10px 6px;
+    margin-bottom:16px;
+    position:relative;
+  }
+  .chart-wrap svg{ width:100%; height:auto; display:block; }
+  .band-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px;
+    fill: var(--muted);
+    letter-spacing:0.05em;
+  }
+  .axis-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px;
+    fill: var(--muted);
+  }
+  .axis-title{
+    font-family:'Roboto Slab', serif;
+    font-weight:700;
+    font-size:13px;
+    fill: var(--paper);
+  }
+  .node-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:9.5px;
+    fill: var(--ink);
+    font-weight:600;
+  }
+  .empty-chart{
+    text-align:center;
+    color: var(--muted);
+    font-size:12px;
+    padding: 30px 10px;
+  }
+
+  /* Add task */
+  .add-btn{
+    width:100%;
+    background: var(--paper);
+    color: var(--ink);
+    border:none;
+    border-radius:12px;
+    padding:14px;
+    font-family:'Roboto Slab', serif;
+    font-weight:700;
+    font-size:16px;
+    letter-spacing:-0.01em;
+    cursor:pointer;
+    margin-bottom:22px;
+    transition: transform 0.1s ease;
+  }
+  .add-btn:active{ transform: scale(0.98); }
+
+  /* List */
+  .list-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:10px;
+  }
+  .list-title{
+    font-family:'Roboto Slab', serif;
+    font-weight:700;
+    font-size:15px;
+  }
+  .sort-controls{
+    display:flex;
+    gap:4px;
+  }
+  .sort-btn{
+    background:none;
+    border:none;
+    color: var(--muted);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    cursor:pointer;
+    padding:4px 6px;
+    border-bottom:2px solid transparent;
+  }
+  .sort-btn.active{
+    color: var(--paper);
+    border-bottom-color: var(--med);
+  }
+
+  .table-wrap{
+    background: var(--panel);
+    border:1px solid var(--grid-line);
+    border-radius:12px;
+    max-height:340px;
+    overflow-y:auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .task-table{
+    width:100%;
+    border-collapse:collapse;
+    table-layout:fixed;
+  }
+  .task-table thead th{
+    position:sticky;
+    top:0;
+    background: var(--panel-2);
+    color: var(--muted);
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    text-align:left;
+    padding:9px 8px;
+    z-index:1;
+    border-bottom:1px solid var(--grid-line);
+  }
+  .col-prio{ width:14px; }
+  .col-date{ width:92px; }
+  .col-del{ width:30px; }
+  .task-table tbody tr{
+    border-bottom:1px solid var(--grid-line);
+    cursor:pointer;
+  }
+  .task-table tbody tr:last-child{ border-bottom:none; }
+  .task-table tbody tr:active{ background: var(--panel-2); }
+  .task-table td{
+    padding:11px 8px;
+    vertical-align:middle;
+  }
+  .prio-dot{
+    width:10px; height:10px;
+    border-radius:50%;
+    flex-shrink:0;
+  }
+  .task-name{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px;
+    font-weight:600;
+    color: var(--paper);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    display:block;
+  }
+  .task-meta{
+    font-size:10px;
+    color: var(--muted);
+    margin-top:2px;
+  }
+  .task-meta.tag-high{ color: var(--high); }
+  .task-meta.tag-med{ color: var(--med); }
+  .task-meta.tag-low{ color: var(--low); }
+  .task-date{
+    font-size:11px;
+    color: var(--paper);
+    white-space:nowrap;
+  }
+  .task-days{
+    font-size:9.5px;
+    color: var(--muted);
+    display:block;
+    margin-top:1px;
+  }
+  .del-btn{
+    background:none;
+    border:none;
+    color: var(--muted);
+    font-size:16px;
+    cursor:pointer;
+    padding:4px 6px;
+    line-height:1;
+  }
+  .del-btn:hover{ color: var(--high); }
+
+  .empty-state{
+    text-align:center;
+    color: var(--muted);
+    font-size:12px;
+    padding: 24px 10px;
+    border:1px dashed var(--grid-line);
+    border-radius:10px;
+  }
+
+  /* Modal */
+  .overlay{
+    position:fixed; inset:0;
+    background: rgba(10,14,18,0.7);
+    display:none;
+    align-items:flex-end;
+    justify-content:center;
+    z-index:50;
+  }
+  .overlay.show{ display:flex; }
+  .modal{
+    background: var(--panel);
+    border-top-left-radius:18px;
+    border-top-right-radius:18px;
+    padding:20px;
+    width:100%;
+    max-width:440px;
+    border:1px solid var(--grid-line);
+    border-bottom:none;
+  }
+  .modal h2{
+    font-family:'Roboto Slab', serif;
+    font-size:18px;
+    margin:0 0 16px;
+  }
+  .field{ margin-bottom:14px; }
+  .field label{
+    display:block;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.05em;
+    color: var(--muted);
+    margin-bottom:6px;
+  }
+  .field input[type="text"], .field input[type="date"]{
+    width:100%;
+    background: var(--ink);
+    border:1px solid var(--grid-line);
+    color: var(--paper);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:14px;
+    padding:11px;
+    border-radius:8px;
+  }
+  .prio-select{
+    display:flex;
+    gap:8px;
+  }
+  .prio-opt{
+    flex:1;
+    text-align:center;
+    padding:10px 4px;
+    border-radius:8px;
+    border:1px solid var(--grid-line);
+    cursor:pointer;
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color: var(--muted);
+  }
+  .prio-opt.sel-high.active{ background: var(--high-dim); border-color: var(--high); color: var(--high); }
+  .prio-opt.sel-med.active{ background: var(--med-dim); border-color: var(--med); color: var(--med); }
+  .prio-opt.sel-low.active{ background: var(--low-dim); border-color: var(--low); color: var(--low); }
+  .modal-actions{
+    display:flex;
+    gap:10px;
+    margin-top:6px;
+  }
+  .btn-cancel, .btn-save{
+    flex:1;
+    padding:13px;
+    border-radius:10px;
+    border:none;
+    font-family:'IBM Plex Mono', monospace;
+    font-weight:600;
+    font-size:13px;
+    cursor:pointer;
+  }
+  .btn-cancel{ background: transparent; border:1px solid var(--grid-line); color: var(--muted); }
+  .btn-save{ background: var(--paper); color: var(--ink); }
+  .err{ color: var(--high); font-size:11px; margin-top:-8px; margin-bottom:12px; display:none; }
+  .err.show{ display:block; }
+  .btn-delete-modal{
+    width:100%;
+    margin-top:10px;
+    background:none;
+    border:none;
+    color: var(--high);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12px;
+    padding:8px;
+    cursor:pointer;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <p class="eyebrow">Priority / Time Plot</p>
+  <h1>Task Matrix</h1>
+  <p class="subline">Plotted by importance and days out. Filter the window below.</p>
+
+  <div class="filters" id="filters">
+    <button class="pill" data-range="week">Week</button>
+    <button class="pill" data-range="month">Month</button>
+    <button class="pill" data-range="6month">6 Month</button>
+    <button class="pill active" data-range="year">Year</button>
+    <button class="pill" data-range="custom">Custom</button>
+  </div>
+  <div class="custom-range" id="customRange">
+    <input type="date" id="customStart">
+    <input type="date" id="customEnd">
+  </div>
+
+  <div class="chart-wrap">
+    <svg id="chartSvg" viewBox="0 0 400 300"></svg>
+  </div>
+
+  <button class="add-btn" id="openAdd">+ Insert New Task</button>
+
+  <div class="list-header">
+    <div class="list-title">Task List</div>
+    <div class="sort-controls" id="sortControls">
+      <button class="sort-btn" data-sort="name">A–Z</button>
+      <button class="sort-btn active" data-sort="importance">Priority</button>
+      <button class="sort-btn" data-sort="date">Date</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="task-table">
+      <thead>
+        <tr>
+          <th class="col-prio"></th>
+          <th class="col-name">Task</th>
+          <th class="col-date">Deadline</th>
+          <th class="col-del"></th>
+        </tr>
+      </thead>
+      <tbody id="taskList"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2 id="modalTitle">New Task</h2>
+    <div class="field">
+      <label>Task name</label>
+      <input type="text" id="taskName" placeholder="e.g. Renew car registration">
+    </div>
+    <div class="field">
+      <label>Importance</label>
+      <div class="prio-select">
+        <div class="prio-opt sel-high" data-p="high">High</div>
+        <div class="prio-opt sel-med active" data-p="medium">Medium</div>
+        <div class="prio-opt sel-low" data-p="low">Low</div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Deadline</label>
+      <input type="date" id="taskDate">
+    </div>
+    <div class="err" id="formErr">Give the task a name and a deadline.</div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="cancelAdd">Cancel</button>
+      <button class="btn-save" id="saveAdd">Save Task</button>
+    </div>
+    <button class="btn-delete-modal" id="deleteFromModal" style="display:none;">Delete Task</button>
+  </div>
+</div>
+
+<script>
+const STORAGE_KEY = 'tasks';
+let tasks = [];
+let currentRange = 'year';
+let currentSort = 'importance';
+let selectedPriority = 'medium';
+
+const PRIO_COLOR = { high: '#E8623C', medium: '#E8B93D', low: '#4FA9A0' };
+const PRIO_LABEL = { high: 'High', medium: 'Medium', low: 'Low' };
+const PRIO_ORDER = { high: 0, medium: 1, low: 2 };
+
+function todayISO(){
+  const d = new Date();
+  d.setHours(0,0,0,0);
+  return d;
+}
+
+function daysFromToday(dateStr){
+  const target = new Date(dateStr + 'T00:00:00');
+  const t = todayISO();
+  return Math.round((target - t) / 86400000);
+}
+
+function fmtDate(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+}
+
+function rangeEndDays(){
+  if (currentRange === 'week') return 7;
+  if (currentRange === 'month') return 30;
+  if (currentRange === '6month') return 182;
+  if (currentRange === 'year') return 365;
+  if (currentRange === 'custom'){
+    const s = document.getElementById('customStart').value;
+    const e = document.getElementById('customEnd').value;
+    if (!s || !e) return 365;
+    return daysFromToday(e);
+  }
+  return 365;
+}
+
+function rangeStartDays(){
+  if (currentRange === 'custom'){
+    const s = document.getElementById('customStart').value;
+    if (!s) return 0;
+    return Math.max(0, daysFromToday(s));
+  }
+  return 0;
+}
+
+async function loadTasks(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    tasks = raw ? JSON.parse(raw) : seedTasks();
+    if (!raw) await saveTasks();
+  }catch(e){
+    tasks = seedTasks();
+    await saveTasks();
+  }
+  render();
+}
+
+function seedTasks(){
+  const t = todayISO();
+  const add = (n) => { const d = new Date(t); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+  return [
+    { id: crypto.randomUUID(), name: "Leo's urgent care", importance: 'high', date: add(2) },
+    { id: crypto.randomUUID(), name: 'Get a post doc', importance: 'high', date: add(300) },
+    { id: crypto.randomUUID(), name: 'Figure out ef model', importance: 'medium', date: add(31) },
+    { id: crypto.randomUUID(), name: 'Budgeting for July', importance: 'low', date: add(1) },
+    { id: crypto.randomUUID(), name: 'Get a new laptop', importance: 'low', date: add(210) },
+  ];
+}
+
+async function saveTasks(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  }catch(e){
+    console.error('Save failed', e);
+  }
+}
+
+function render(){
+  renderChart();
+  renderList();
+}
+
+function renderChart(){
+  const svg = document.getElementById('chartSvg');
+  const W = 400, H = 300;
+  const marginL = 46, marginR = 14, marginT = 14, marginB = 34;
+  const plotW = W - marginL - marginR;
+  const plotH = H - marginT - marginB;
+  const startDay = rangeStartDays();
+  const endDay = rangeEndDays();
+
+  const visible = tasks.filter(t => {
+    const d = daysFromToday(t.date);
+    return d >= startDay && d <= endDay;
+  });
+
+  let svgContent = '';
+
+  // grid background lines (graph paper feel)
+  for (let i = 0; i <= 4; i++){
+    const y = marginT + (plotH/4)*i;
+    svgContent += `<line x1="${marginL}" y1="${y}" x2="${W-marginR}" y2="${y}" stroke="var(--grid-line)" stroke-width="1"/>`;
+  }
+  for (let i = 0; i <= 4; i++){
+    const x = marginL + (plotW/4)*i;
+    svgContent += `<line x1="${x}" y1="${marginT}" x2="${x}" y2="${H-marginB}" stroke="var(--grid-line)" stroke-width="1"/>`;
+  }
+
+  // importance band divider lines (thirds)
+  const bandH = plotH / 3;
+  [1,2].forEach(i=>{
+    const y = marginT + bandH*i;
+    svgContent += `<line x1="${marginL}" y1="${y}" x2="${W-marginR}" y2="${y}" stroke="rgba(237,239,242,0.16)" stroke-width="1.2"/>`;
+  });
+
+  // band labels
+  const bandCenters = { high: marginT + bandH*0.5, medium: marginT + bandH*1.5, low: marginT + bandH*2.5 };
+  svgContent += `<text x="${marginL-6}" y="${bandCenters.high+3}" text-anchor="end" class="band-label">High</text>`;
+  svgContent += `<text x="${marginL-6}" y="${bandCenters.medium+3}" text-anchor="end" class="band-label">Med</text>`;
+  svgContent += `<text x="${marginL-6}" y="${bandCenters.low+3}" text-anchor="end" class="band-label">Low</text>`;
+
+  // axis title (Importance, rotated)
+  svgContent += `<text x="14" y="${marginT + plotH/2}" text-anchor="middle" class="axis-title" transform="rotate(-90 14 ${marginT+plotH/2})">Importance</text>`;
+
+  // x axis labels
+  const startLabel = startDay === 0 ? 'Today' : `+${startDay}d`;
+  svgContent += `<text x="${marginL}" y="${H-marginB+16}" text-anchor="start" class="axis-label">${startLabel}</text>`;
+  svgContent += `<text x="${W-marginR}" y="${H-marginB+16}" text-anchor="end" class="axis-label">+${endDay}d</text>`;
+  svgContent += `<text x="${marginL+plotW/2}" y="${H-6}" text-anchor="middle" class="axis-title">Time</text>`;
+
+  // nodes
+  if (visible.length === 0){
+    svgContent += `<text x="${W/2}" y="${H/2}" text-anchor="middle" class="axis-label" fill="var(--muted)">No tasks in this range</text>`;
+  } else {
+    // simple jitter to reduce overlap: track used x-buckets per band
+    const bandUsage = {};
+    visible.forEach(t => {
+      const d = daysFromToday(t.date);
+      const clampedD = Math.min(Math.max(d, startDay), endDay);
+      const frac = endDay > startDay ? (clampedD - startDay) / (endDay - startDay) : 0.5;
+      const x = marginL + frac * plotW;
+      const cy = bandCenters[t.importance];
+
+      // jitter vertically within band if x-collision
+      const bucket = Math.round(x/18);
+      const key = t.importance + '-' + bucket;
+      bandUsage[key] = (bandUsage[key] || 0);
+      const offset = bandUsage[key] * 13;
+      bandUsage[key]++;
+      const y = cy - (bandH*0.32) + (offset % (bandH*0.6));
+
+      const color = PRIO_COLOR[t.importance];
+      const label = t.name.length > 14 ? t.name.slice(0,13)+'…' : t.name;
+      svgContent += `<g>
+        <circle cx="${x}" cy="${y}" r="20" fill="${color}" fill-opacity="0.92" stroke="${color}" stroke-width="1.5"/>
+        <text x="${x}" y="${y+3}" text-anchor="middle" class="node-label">${escapeXml(label)}</text>
+      </g>`;
+    });
+  }
+
+  svg.innerHTML = svgContent;
+}
+
+function escapeXml(s){
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderList(){
+  const container = document.getElementById('taskList');
+  if (tasks.length === 0){
+    container.innerHTML = `<tr><td colspan="4"><div class="empty-state">No tasks yet. Tap "Insert New Task" to add your first one.</div></td></tr>`;
+    return;
+  }
+  const sorted = [...tasks].sort((a,b) => {
+    if (currentSort === 'name') return a.name.localeCompare(b.name);
+    if (currentSort === 'date') return daysFromToday(a.date) - daysFromToday(b.date);
+    return PRIO_ORDER[a.importance] - PRIO_ORDER[b.importance];
+  });
+  const tagClass = { high:'tag-high', medium:'tag-med', low:'tag-low' };
+  container.innerHTML = sorted.map(t => {
+    const d = daysFromToday(t.date);
+    const dayLabel = d === 0 ? 'Today' : d < 0 ? `${Math.abs(d)}d overdue` : `in ${d}d`;
+    return `<tr data-id="${t.id}">
+      <td><div class="prio-dot" style="background:${PRIO_COLOR[t.importance]}"></div></td>
+      <td>
+        <span class="task-name">${escapeXml(t.name)}</span>
+        <span class="task-meta ${tagClass[t.importance]}">${PRIO_LABEL[t.importance]}</span>
+      </td>
+      <td>
+        <span class="task-date">${fmtDate(t.date)}</span>
+        <span class="task-days">${dayLabel}</span>
+      </td>
+      <td><button class="del-btn" data-id="${t.id}" title="Delete task">×</button></td>
+    </tr>`;
+  }).join('');
+
+  container.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      tasks = tasks.filter(t => t.id !== btn.dataset.id);
+      await saveTasks();
+      render();
+    });
+  });
+
+  container.querySelectorAll('tr[data-id]').forEach(row => {
+    row.addEventListener('click', () => openEdit(row.dataset.id));
+  });
+}
+
+// Filter pills
+document.getElementById('filters').addEventListener('click', (e) => {
+  const btn = e.target.closest('.pill');
+  if (!btn) return;
+  document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  currentRange = btn.dataset.range;
+  document.getElementById('customRange').classList.toggle('show', currentRange === 'custom');
+  renderChart();
+});
+
+document.getElementById('customStart').addEventListener('change', renderChart);
+document.getElementById('customEnd').addEventListener('change', renderChart);
+
+// Sort controls
+document.getElementById('sortControls').addEventListener('click', (e) => {
+  const btn = e.target.closest('.sort-btn');
+  if (!btn) return;
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentSort = btn.dataset.sort;
+  renderList();
+});
+
+// Modal open/close
+const overlay = document.getElementById('overlay');
+let editingId = null;
+
+function setPriorityUI(p){
+  selectedPriority = p;
+  document.querySelectorAll('.prio-opt').forEach(o => o.classList.toggle('active', o.dataset.p === p));
+}
+
+document.getElementById('openAdd').addEventListener('click', () => {
+  editingId = null;
+  document.getElementById('modalTitle').textContent = 'New Task';
+  document.getElementById('taskName').value = '';
+  const today = new Date().toISOString().slice(0,10);
+  document.getElementById('taskDate').value = today;
+  document.getElementById('taskDate').min = today;
+  document.getElementById('formErr').classList.remove('show');
+  document.getElementById('deleteFromModal').style.display = 'none';
+  setPriorityUI('medium');
+  overlay.classList.add('show');
+});
+
+function openEdit(id){
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  editingId = id;
+  document.getElementById('modalTitle').textContent = 'Edit Task';
+  document.getElementById('taskName').value = t.name;
+  document.getElementById('taskDate').value = t.date;
+  document.getElementById('taskDate').min = '';
+  document.getElementById('formErr').classList.remove('show');
+  document.getElementById('deleteFromModal').style.display = 'block';
+  setPriorityUI(t.importance);
+  overlay.classList.add('show');
+}
+
+document.getElementById('cancelAdd').addEventListener('click', () => overlay.classList.remove('show'));
+overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('show'); });
+
+document.querySelectorAll('.prio-opt').forEach(opt => {
+  opt.addEventListener('click', () => setPriorityUI(opt.dataset.p));
+});
+
+document.getElementById('saveAdd').addEventListener('click', async () => {
+  const name = document.getElementById('taskName').value.trim();
+  const date = document.getElementById('taskDate').value;
+  if (!name || !date){
+    document.getElementById('formErr').classList.add('show');
+    return;
+  }
+  if (editingId){
+    const t = tasks.find(x => x.id === editingId);
+    if (t){ t.name = name; t.importance = selectedPriority; t.date = date; }
+  } else {
+    tasks.push({ id: crypto.randomUUID(), name, importance: selectedPriority, date });
+  }
+  await saveTasks();
+  overlay.classList.remove('show');
+  render();
+});
+
+document.getElementById('deleteFromModal').addEventListener('click', async () => {
+  if (!editingId) return;
+  tasks = tasks.filter(t => t.id !== editingId);
+  await saveTasks();
+  overlay.classList.remove('show');
+  render();
+});
+
+loadTasks();
+
+// Keep the chart current if the app is left open across a day change.
+let lastKnownDay = todayISO().getTime();
+setInterval(() => {
+  const nowDay = todayISO().getTime();
+  if (nowDay !== lastKnownDay){
+    lastKnownDay = nowDay;
+    render();
+  }
+}, 60000);
+
+// Register service worker so the browser treats this as an installable app.
+if ('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
