@@ -1,0 +1,16 @@
+{
+  "name": "Task Matrix",
+  "short_name": "Task Matrix",
+  "description": "Plot tasks by importance and time.",
+  "start_url": "./task-matrix.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#16202B",
+  "theme_color": "#16202B",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
+  ]
+}
