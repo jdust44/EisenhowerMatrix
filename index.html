@@ -132,12 +132,23 @@
     font-size:13px;
     fill: var(--paper);
   }
-  .node-label{
+  .node-label-in{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:6.3px;
+    font-weight:700;
+    fill: var(--ink);
+    pointer-events:none;
+  }
+  .node-label-expand{
     font-family:'IBM Plex Mono', monospace;
     font-size:9.5px;
+    font-weight:700;
     fill: var(--ink);
-    font-weight:600;
+    pointer-events:none;
+    transition: opacity 0.15s ease;
   }
+  .chart-node{ cursor:pointer; }
+  .expand-bubble{ cursor:pointer; }
   .empty-chart{
     text-align:center;
     color: var(--muted);
@@ -388,7 +399,6 @@
 <div class="app">
   <p class="eyebrow">Priority / Time Plot</p>
   <h1>Task Matrix</h1>
-  <p class="subline">Plotted by importance and days out. Filter the window below.</p>
 
   <div class="filters" id="filters">
     <button class="pill" data-range="week">Week</button>
@@ -403,7 +413,7 @@
   </div>
 
   <div class="chart-wrap">
-    <svg id="chartSvg" viewBox="0 0 400 300"></svg>
+    <svg id="chartSvg" viewBox="0 0 400 440"></svg>
   </div>
 
   <button class="add-btn" id="openAdd">+ Insert New Task</button>
@@ -547,12 +557,61 @@ function render(){
   renderList();
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const R_BASE = 12;
+let chartLayout = [];
+let chartMargins = { marginL: 46, marginT: 14, plotW: 0, plotH: 0 };
+let expandedNode = null;
+
+function wrapLabel(text, maxChars, maxLines){
+  const words = text.split(/\s+/);
+  const lines = [];
+  let idx = 0;
+  while (idx < words.length && lines.length < maxLines){
+    let line = words[idx];
+    idx++;
+    while (idx < words.length && (line + ' ' + words[idx]).length <= maxChars){
+      line += ' ' + words[idx];
+      idx++;
+    }
+    if (line.length > maxChars) line = line.slice(0, maxChars);
+    lines.push(line);
+  }
+  if (idx < words.length){
+    let last = lines[lines.length - 1] || '';
+    if (last.length > maxChars - 1) last = last.slice(0, Math.max(0, maxChars - 1));
+    lines[lines.length - 1] = last + '…';
+  }
+  return lines;
+}
+
+function tspanLines(lines, cx, cy, fontSize){
+  const lineHeight = fontSize * 1.2;
+  const totalH = (lines.length - 1) * lineHeight;
+  const startY = cy - totalH / 2 + fontSize * 0.32;
+  return lines.map((l, i) => `<tspan x="${cx}" y="${startY + i * lineHeight}">${escapeXml(l)}</tspan>`).join('');
+}
+
+function animateFrames(duration, onFrame, onDone){
+  const start = performance.now();
+  function step(now){
+    const t = Math.min(1, (now - start) / duration);
+    onFrame(t);
+    if (t < 1) requestAnimationFrame(step); else if (onDone) onDone();
+  }
+  requestAnimationFrame(step);
+}
+function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
+function lerp(a, b, t){ return a + (b - a) * t; }
+
 function renderChart(){
   const svg = document.getElementById('chartSvg');
-  const W = 400, H = 300;
+  expandedNode = null;
+  const W = 400, H = 440;
   const marginL = 46, marginR = 14, marginT = 14, marginB = 34;
   const plotW = W - marginL - marginR;
   const plotH = H - marginT - marginB;
+  chartMargins = { marginL, marginT, plotW, plotH };
   const startDay = rangeStartDays();
   const endDay = rangeEndDays();
 
@@ -563,7 +622,6 @@ function renderChart(){
 
   let svgContent = '';
 
-  // grid background lines (graph paper feel)
   for (let i = 0; i <= 4; i++){
     const y = marginT + (plotH/4)*i;
     svgContent += `<line x1="${marginL}" y1="${y}" x2="${W-marginR}" y2="${y}" stroke="var(--grid-line)" stroke-width="1"/>`;
@@ -573,33 +631,29 @@ function renderChart(){
     svgContent += `<line x1="${x}" y1="${marginT}" x2="${x}" y2="${H-marginB}" stroke="var(--grid-line)" stroke-width="1"/>`;
   }
 
-  // importance band divider lines (thirds)
   const bandH = plotH / 3;
   [1,2].forEach(i=>{
     const y = marginT + bandH*i;
     svgContent += `<line x1="${marginL}" y1="${y}" x2="${W-marginR}" y2="${y}" stroke="rgba(237,239,242,0.16)" stroke-width="1.2"/>`;
   });
 
-  // band labels
   const bandCenters = { high: marginT + bandH*0.5, medium: marginT + bandH*1.5, low: marginT + bandH*2.5 };
   svgContent += `<text x="${marginL-6}" y="${bandCenters.high+3}" text-anchor="end" class="band-label">High</text>`;
   svgContent += `<text x="${marginL-6}" y="${bandCenters.medium+3}" text-anchor="end" class="band-label">Med</text>`;
   svgContent += `<text x="${marginL-6}" y="${bandCenters.low+3}" text-anchor="end" class="band-label">Low</text>`;
 
-  // axis title (Importance, rotated)
   svgContent += `<text x="14" y="${marginT + plotH/2}" text-anchor="middle" class="axis-title" transform="rotate(-90 14 ${marginT+plotH/2})">Importance</text>`;
 
-  // x axis labels
   const startLabel = startDay === 0 ? 'Today' : `+${startDay}d`;
   svgContent += `<text x="${marginL}" y="${H-marginB+16}" text-anchor="start" class="axis-label">${startLabel}</text>`;
   svgContent += `<text x="${W-marginR}" y="${H-marginB+16}" text-anchor="end" class="axis-label">+${endDay}d</text>`;
   svgContent += `<text x="${marginL+plotW/2}" y="${H-6}" text-anchor="middle" class="axis-title">Time</text>`;
 
-  // nodes
+  chartLayout = [];
+
   if (visible.length === 0){
     svgContent += `<text x="${W/2}" y="${H/2}" text-anchor="middle" class="axis-label" fill="var(--muted)">No tasks in this range</text>`;
   } else {
-    // simple jitter to reduce overlap: track used x-buckets per band
     const bandUsage = {};
     visible.forEach(t => {
       const d = daysFromToday(t.date);
@@ -608,24 +662,124 @@ function renderChart(){
       const x = marginL + frac * plotW;
       const cy = bandCenters[t.importance];
 
-      // jitter vertically within band if x-collision
-      const bucket = Math.round(x/18);
+      const bucket = Math.round(x/40);
       const key = t.importance + '-' + bucket;
       bandUsage[key] = (bandUsage[key] || 0);
-      const offset = bandUsage[key] * 13;
+      const offset = bandUsage[key] * 34;
       bandUsage[key]++;
-      const y = cy - (bandH*0.32) + (offset % (bandH*0.6));
+      const y = cy - (bandH*0.28) + (offset % (bandH*0.56));
 
       const color = PRIO_COLOR[t.importance];
-      const label = t.name.length > 14 ? t.name.slice(0,13)+'…' : t.name;
-      svgContent += `<g>
-        <circle cx="${x}" cy="${y}" r="20" fill="${color}" fill-opacity="0.92" stroke="${color}" stroke-width="1.5"/>
-        <text x="${x}" y="${y+3}" text-anchor="middle" class="node-label">${escapeXml(label)}</text>
+      const lines = wrapLabel(t.name, 5, 2);
+      chartLayout.push({ id: t.id, x, y, r: R_BASE, color, name: t.name });
+
+      svgContent += `<g class="chart-node" data-id="${t.id}">
+        <circle cx="${x}" cy="${y}" r="${R_BASE}" fill="${color}" stroke="var(--panel)" stroke-width="1.5"/>
+        <text text-anchor="middle" class="node-label-in">${tspanLines(lines, x, y, 6.3)}</text>
       </g>`;
     });
   }
 
   svg.innerHTML = svgContent;
+  svg.querySelectorAll('.chart-node').forEach(node => {
+    node.addEventListener('click', () => handleBubbleTap(node.dataset.id));
+  });
+}
+
+function handleBubbleTap(id){
+  const data = chartLayout.find(n => n.id === id);
+  if (!data) return;
+  if (expandedNode && expandedNode.id === id){
+    collapseBubble();
+  } else if (expandedNode){
+    collapseBubble(() => startExpand(data));
+  } else {
+    startExpand(data);
+  }
+}
+
+function startExpand(data){
+  const svg = document.getElementById('chartSvg');
+  const orig = svg.querySelector(`.chart-node[data-id="${data.id}"]`);
+  if (orig) orig.style.opacity = '0';
+
+  const { marginL, marginT, plotW, plotH } = chartMargins;
+  const targetX = marginL + plotW/2;
+  const targetY = marginT + plotH/2;
+  const targetR = data.r * 2;
+
+  const backdrop = document.createElementNS(SVG_NS, 'rect');
+  backdrop.setAttribute('x', marginL);
+  backdrop.setAttribute('y', marginT);
+  backdrop.setAttribute('width', plotW);
+  backdrop.setAttribute('height', plotH);
+  backdrop.setAttribute('fill', 'rgba(15,20,26,0)');
+  backdrop.addEventListener('click', () => collapseBubble());
+  svg.appendChild(backdrop);
+
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.classList.add('expand-bubble');
+  const circle = document.createElementNS(SVG_NS, 'circle');
+  circle.setAttribute('cx', data.x);
+  circle.setAttribute('cy', data.y);
+  circle.setAttribute('r', data.r);
+  circle.setAttribute('fill', data.color);
+  circle.setAttribute('stroke', 'var(--panel)');
+  circle.setAttribute('stroke-width', '2');
+  const text = document.createElementNS(SVG_NS, 'text');
+  text.setAttribute('text-anchor', 'middle');
+  text.classList.add('node-label-expand');
+  text.style.opacity = '0';
+  g.appendChild(circle);
+  g.appendChild(text);
+  g.addEventListener('click', (e) => { e.stopPropagation(); collapseBubble(); });
+  svg.appendChild(g);
+
+  expandedNode = { id: data.id, g, backdrop, orig, x: data.x, y: data.y, r: data.r };
+
+  const lines = wrapLabel(data.name, 8, 4);
+  let swapped = false;
+
+  animateFrames(320, (t) => {
+    const ease = easeOutCubic(t);
+    const cx = lerp(data.x, targetX, ease);
+    const cy = lerp(data.y, targetY, ease);
+    const r = lerp(data.r, targetR, ease);
+    circle.setAttribute('cx', cx);
+    circle.setAttribute('cy', cy);
+    circle.setAttribute('r', r);
+    backdrop.setAttribute('fill', `rgba(15,20,26,${0.6 * ease})`);
+    if (t > 0.5){
+      if (!swapped){ swapped = true; }
+      text.innerHTML = tspanLines(lines, cx, cy, 9.5);
+      text.style.opacity = String(Math.min(1, (t - 0.5) / 0.5));
+    }
+  });
+}
+
+function collapseBubble(onDone){
+  if (!expandedNode){ if (onDone) onDone(); return; }
+  const en = expandedNode;
+  expandedNode = null;
+  const svg = document.getElementById('chartSvg');
+  const { marginL, marginT, plotW, plotH } = chartMargins;
+  const fromX = marginL + plotW/2, fromY = marginT + plotH/2, fromR = en.r * 2;
+  const circle = en.g.querySelector('circle');
+  const text = en.g.querySelector('text');
+  text.style.opacity = '0';
+
+  animateFrames(220, (t) => {
+    const ease = easeOutCubic(t);
+    circle.setAttribute('cx', lerp(fromX, en.x, ease));
+    circle.setAttribute('cy', lerp(fromY, en.y, ease));
+    circle.setAttribute('r', lerp(fromR, en.r, ease));
+    en.backdrop.setAttribute('fill', `rgba(15,20,26,${0.6 * (1-ease)})`);
+  }, () => {
+    if (en.g.parentNode) en.g.parentNode.removeChild(en.g);
+    if (en.backdrop.parentNode) en.backdrop.parentNode.removeChild(en.backdrop);
+    if (en.orig) en.orig.style.opacity = '1';
+    if (onDone) onDone();
+  });
 }
 
 function escapeXml(s){
