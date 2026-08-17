@@ -401,9 +401,9 @@
   <h1>Task Matrix</h1>
 
   <div class="filters" id="filters">
+    <button class="pill" data-range="today">Today</button>
     <button class="pill" data-range="week">Week</button>
     <button class="pill" data-range="month">Month</button>
-    <button class="pill" data-range="6month">6 Month</button>
     <button class="pill active" data-range="year">Year</button>
     <button class="pill" data-range="custom">Custom</button>
   </div>
@@ -498,9 +498,9 @@ function fmtDate(dateStr){
 }
 
 function rangeEndDays(){
+  if (currentRange === 'today') return 0;
   if (currentRange === 'week') return 7;
   if (currentRange === 'month') return 30;
-  if (currentRange === '6month') return 182;
   if (currentRange === 'year') return 365;
   if (currentRange === 'custom'){
     const s = document.getElementById('customStart').value;
@@ -558,10 +558,23 @@ function render(){
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const R_BASE = 12;
+const R_BASE = 24;
+const CHART_W = 400, CHART_H = 440;
+const CHART_MARGIN_L = 46, CHART_MARGIN_R = 14, CHART_MARGIN_T = 14, CHART_MARGIN_B = 34;
+const CHART_PLOT_W = CHART_W - CHART_MARGIN_L - CHART_MARGIN_R;
+const CHART_PLOT_H = CHART_H - CHART_MARGIN_T - CHART_MARGIN_B;
+const BAND_H = CHART_PLOT_H / 3;
+const BAND_CENTERS = {
+  high: CHART_MARGIN_T + BAND_H * 0.5,
+  medium: CHART_MARGIN_T + BAND_H * 1.5,
+  low: CHART_MARGIN_T + BAND_H * 2.5
+};
+const STACK_STEP = 16;
+
 let chartLayout = [];
-let chartMargins = { marginL: 46, marginT: 14, plotW: 0, plotH: 0 };
+let chartMargins = { marginL: CHART_MARGIN_L, marginT: CHART_MARGIN_T, plotW: CHART_PLOT_W, plotH: CHART_PLOT_H };
 let expandedNode = null;
+let chartTransitioning = false;
 
 function wrapLabel(text, maxChars, maxLines){
   const words = text.split(/\s+/);
@@ -604,86 +617,188 @@ function animateFrames(duration, onFrame, onDone){
 function easeOutCubic(t){ return 1 - Math.pow(1 - t, 3); }
 function lerp(a, b, t){ return a + (b - a) * t; }
 
-function renderChart(){
-  const svg = document.getElementById('chartSvg');
-  expandedNode = null;
-  const W = 400, H = 440;
-  const marginL = 46, marginR = 14, marginT = 14, marginB = 34;
-  const plotW = W - marginL - marginR;
-  const plotH = H - marginT - marginB;
-  chartMargins = { marginL, marginT, plotW, plotH };
-  const startDay = rangeStartDays();
-  const endDay = rangeEndDays();
-
+// Computes bubble positions for a given day range, without touching the DOM.
+// Returns nodes in ascending-urgency order within each band (most urgent first).
+function computeBubbleLayout(startDay, endDay){
   const visible = tasks.filter(t => {
     const d = daysFromToday(t.date);
     return d >= startDay && d <= endDay;
   });
 
-  let svgContent = '';
+  const allNodes = [];
+  ['high','medium','low'].forEach(band => {
+    const inBand = visible
+      .filter(t => t.importance === band)
+      .sort((a, b) => daysFromToday(a.date) - daysFromToday(b.date));
 
-  for (let i = 0; i <= 4; i++){
-    const y = marginT + (plotH/4)*i;
-    svgContent += `<line x1="${marginL}" y1="${y}" x2="${W-marginR}" y2="${y}" stroke="var(--grid-line)" stroke-width="1"/>`;
-  }
-  for (let i = 0; i <= 4; i++){
-    const x = marginL + (plotW/4)*i;
-    svgContent += `<line x1="${x}" y1="${marginT}" x2="${x}" y2="${H-marginB}" stroke="var(--grid-line)" stroke-width="1"/>`;
-  }
-
-  const bandH = plotH / 3;
-  [1,2].forEach(i=>{
-    const y = marginT + bandH*i;
-    svgContent += `<line x1="${marginL}" y1="${y}" x2="${W-marginR}" y2="${y}" stroke="rgba(237,239,242,0.16)" stroke-width="1.2"/>`;
-  });
-
-  const bandCenters = { high: marginT + bandH*0.5, medium: marginT + bandH*1.5, low: marginT + bandH*2.5 };
-  svgContent += `<text x="${marginL-6}" y="${bandCenters.high+3}" text-anchor="end" class="band-label">High</text>`;
-  svgContent += `<text x="${marginL-6}" y="${bandCenters.medium+3}" text-anchor="end" class="band-label">Med</text>`;
-  svgContent += `<text x="${marginL-6}" y="${bandCenters.low+3}" text-anchor="end" class="band-label">Low</text>`;
-
-  svgContent += `<text x="14" y="${marginT + plotH/2}" text-anchor="middle" class="axis-title" transform="rotate(-90 14 ${marginT+plotH/2})">Importance</text>`;
-
-  const startLabel = startDay === 0 ? 'Today' : `+${startDay}d`;
-  svgContent += `<text x="${marginL}" y="${H-marginB+16}" text-anchor="start" class="axis-label">${startLabel}</text>`;
-  svgContent += `<text x="${W-marginR}" y="${H-marginB+16}" text-anchor="end" class="axis-label">+${endDay}d</text>`;
-  svgContent += `<text x="${marginL+plotW/2}" y="${H-6}" text-anchor="middle" class="axis-title">Time</text>`;
-
-  chartLayout = [];
-
-  if (visible.length === 0){
-    svgContent += `<text x="${W/2}" y="${H/2}" text-anchor="middle" class="axis-label" fill="var(--muted)">No tasks in this range</text>`;
-  } else {
-    const bandUsage = {};
-    visible.forEach(t => {
+    let prevX = null;
+    inBand.forEach(t => {
       const d = daysFromToday(t.date);
       const clampedD = Math.min(Math.max(d, startDay), endDay);
       const frac = endDay > startDay ? (clampedD - startDay) / (endDay - startDay) : 0.5;
-      const x = marginL + frac * plotW;
-      const cy = bandCenters[t.importance];
+      const rawX = CHART_MARGIN_L + frac * CHART_PLOT_W;
 
-      const bucket = Math.round(x/40);
-      const key = t.importance + '-' + bucket;
-      bandUsage[key] = (bandUsage[key] || 0);
-      const offset = bandUsage[key] * 34;
-      bandUsage[key]++;
-      const y = cy - (bandH*0.28) + (offset % (bandH*0.56));
+      let x = rawX;
+      if (prevX !== null && x - prevX < STACK_STEP){
+        x = prevX + STACK_STEP;
+      }
+      x = Math.min(Math.max(x, CHART_MARGIN_L + R_BASE), CHART_MARGIN_L + CHART_PLOT_W - R_BASE);
+      prevX = x;
 
-      const color = PRIO_COLOR[t.importance];
-      const lines = wrapLabel(t.name, 5, 2);
-      chartLayout.push({ id: t.id, x, y, r: R_BASE, color, name: t.name });
-
-      svgContent += `<g class="chart-node" data-id="${t.id}">
-        <circle cx="${x}" cy="${y}" r="${R_BASE}" fill="${color}" stroke="var(--panel)" stroke-width="1.5"/>
-        <text text-anchor="middle" class="node-label-in">${tspanLines(lines, x, y, 6.3)}</text>
-      </g>`;
+      allNodes.push({
+        id: t.id, x, y: BAND_CENTERS[band], r: R_BASE,
+        color: PRIO_COLOR[band], lines: wrapLabel(t.name, 8, 2), name: t.name
+      });
     });
+  });
+  return allNodes;
+}
+
+function nodeMarkup(n){
+  return `<g class="chart-node" data-id="${n.id}">
+    <circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" stroke="var(--panel)" stroke-width="1.5"/>
+    <text text-anchor="middle" class="node-label-in">${tspanLines(n.lines, n.x, n.y, 8.5)}</text>
+  </g>`;
+}
+
+function renderChart(){
+  const svg = document.getElementById('chartSvg');
+  expandedNode = null;
+  chartTransitioning = false;
+  const startDay = rangeStartDays();
+  const endDay = rangeEndDays();
+
+  let svgContent = '';
+
+  for (let i = 0; i <= 4; i++){
+    const x = CHART_MARGIN_L + (CHART_PLOT_W/4)*i;
+    svgContent += `<line x1="${x}" y1="${CHART_MARGIN_T}" x2="${x}" y2="${CHART_H-CHART_MARGIN_B}" stroke="var(--grid-line)" stroke-width="1"/>`;
+  }
+
+  [1,2].forEach(i=>{
+    const y = CHART_MARGIN_T + BAND_H*i;
+    svgContent += `<line x1="${CHART_MARGIN_L}" y1="${y}" x2="${CHART_W-CHART_MARGIN_R}" y2="${y}" stroke="rgba(237,239,242,0.2)" stroke-width="1.2"/>`;
+  });
+
+  svgContent += `<text x="${CHART_MARGIN_L-6}" y="${BAND_CENTERS.high+3}" text-anchor="end" class="band-label">High</text>`;
+  svgContent += `<text x="${CHART_MARGIN_L-6}" y="${BAND_CENTERS.medium+3}" text-anchor="end" class="band-label">Med</text>`;
+  svgContent += `<text x="${CHART_MARGIN_L-6}" y="${BAND_CENTERS.low+3}" text-anchor="end" class="band-label">Low</text>`;
+
+  svgContent += `<text x="14" y="${CHART_MARGIN_T + CHART_PLOT_H/2}" text-anchor="middle" class="axis-title" transform="rotate(-90 14 ${CHART_MARGIN_T+CHART_PLOT_H/2})">Importance</text>`;
+
+  const startLabel = startDay === 0 ? 'Today' : `+${startDay}d`;
+  svgContent += `<text id="axisStartLabel" x="${CHART_MARGIN_L}" y="${CHART_H-CHART_MARGIN_B+16}" text-anchor="start" class="axis-label">${startLabel}</text>`;
+  svgContent += `<text id="axisEndLabel" x="${CHART_W-CHART_MARGIN_R}" y="${CHART_H-CHART_MARGIN_B+16}" text-anchor="end" class="axis-label">+${endDay}d</text>`;
+  svgContent += `<text x="${CHART_MARGIN_L+CHART_PLOT_W/2}" y="${CHART_H-6}" text-anchor="middle" class="axis-title">Time</text>`;
+
+  const allNodes = computeBubbleLayout(startDay, endDay);
+  chartLayout = allNodes;
+
+  if (allNodes.length === 0){
+    svgContent += `<text id="emptyChartMsg" x="${CHART_W/2}" y="${CHART_H/2}" text-anchor="middle" class="axis-label" fill="var(--muted)">No tasks in this range</text>`;
+  } else {
+    allNodes.slice().reverse().forEach(n => { svgContent += nodeMarkup(n); });
   }
 
   svg.innerHTML = svgContent;
   svg.querySelectorAll('.chart-node').forEach(node => {
     node.addEventListener('click', () => handleBubbleTap(node.dataset.id));
   });
+}
+
+// Animates from the currently-rendered bubble layout to the layout for the
+// current filter selection: shared tasks glide along the timeline, tasks
+// leaving the range fade out, and newly-visible tasks fade in.
+function transitionChart(){
+  if (expandedNode) collapseInstantly();
+  if (chartTransitioning){ renderChart(); return; }
+
+  const svg = document.getElementById('chartSvg');
+  const oldById = new Map(chartLayout.map(n => [n.id, n]));
+  const startDay = rangeStartDays();
+  const endDay = rangeEndDays();
+  const newNodes = computeBubbleLayout(startDay, endDay);
+  const newById = new Map(newNodes.map(n => [n.id, n]));
+
+  const startLabelEl = document.getElementById('axisStartLabel');
+  const endLabelEl = document.getElementById('axisEndLabel');
+  if (startLabelEl) startLabelEl.textContent = startDay === 0 ? 'Today' : `+${startDay}d`;
+  if (endLabelEl) endLabelEl.textContent = `+${endDay}d`;
+
+  const emptyMsg = document.getElementById('emptyChartMsg');
+  if (emptyMsg && newNodes.length > 0) emptyMsg.remove();
+
+  const moving = [];
+  newById.forEach((n, id) => {
+    const g = svg.querySelector(`.chart-node[data-id="${id}"]`);
+    if (oldById.has(id) && g){
+      moving.push({ node: n, g, from: oldById.get(id) });
+    } else {
+      // newly visible: fade in at its final spot
+      const el = document.createElementNS(SVG_NS, 'g');
+      el.setAttribute('class', 'chart-node');
+      el.setAttribute('data-id', id);
+      el.style.opacity = '0';
+      el.innerHTML = `<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" stroke="var(--panel)" stroke-width="1.5"/>
+        <text text-anchor="middle" class="node-label-in">${tspanLines(n.lines, n.x, n.y, 8.5)}</text>`;
+      el.addEventListener('click', () => handleBubbleTap(id));
+      svg.appendChild(el);
+      animateFrames(280, t => { el.style.opacity = String(easeOutCubic(t)); });
+    }
+  });
+
+  // no-longer-visible: fade out and remove
+  oldById.forEach((n, id) => {
+    if (!newById.has(id)){
+      const g = svg.querySelector(`.chart-node[data-id="${id}"]`);
+      if (g){
+        animateFrames(220, t => { g.style.opacity = String(1 - easeOutCubic(t)); }, () => {
+          if (g.parentNode) g.parentNode.removeChild(g);
+        });
+      }
+    }
+  });
+
+  chartTransitioning = true;
+  chartLayout = newNodes;
+
+  if (moving.length === 0){
+    chartTransitioning = false;
+    if (newNodes.length === 0 && !document.getElementById('emptyChartMsg')){
+      const msg = document.createElementNS(SVG_NS, 'text');
+      msg.setAttribute('id', 'emptyChartMsg');
+      msg.setAttribute('x', CHART_W/2); msg.setAttribute('y', CHART_H/2);
+      msg.setAttribute('text-anchor','middle'); msg.setAttribute('class','axis-label'); msg.setAttribute('fill','var(--muted)');
+      msg.textContent = 'No tasks in this range';
+      svg.appendChild(msg);
+    }
+    return;
+  }
+
+  animateFrames(340, (t) => {
+    const ease = easeOutCubic(t);
+    moving.forEach(m => {
+      const cx = lerp(m.from.x, m.node.x, ease);
+      const cy = lerp(m.from.y, m.node.y, ease);
+      const circle = m.g.querySelector('circle');
+      const text = m.g.querySelector('text');
+      if (circle){ circle.setAttribute('cx', cx); circle.setAttribute('cy', cy); }
+      if (text){ text.innerHTML = tspanLines(m.node.lines, cx, cy, 8.5); }
+    });
+  }, () => {
+    chartTransitioning = false;
+    // finalize: correct DOM paint order (most-urgent-on-top) and rebind cleanly
+    renderChart();
+  });
+}
+
+function collapseInstantly(){
+  if (!expandedNode) return;
+  const en = expandedNode;
+  expandedNode = null;
+  if (en.g.parentNode) en.g.parentNode.removeChild(en.g);
+  if (en.backdrop.parentNode) en.backdrop.parentNode.removeChild(en.backdrop);
+  if (en.orig) en.orig.style.opacity = '1';
 }
 
 function handleBubbleTap(id){
@@ -737,7 +852,7 @@ function startExpand(data){
 
   expandedNode = { id: data.id, g, backdrop, orig, x: data.x, y: data.y, r: data.r };
 
-  const lines = wrapLabel(data.name, 8, 4);
+  const lines = wrapLabel(data.name, 11, 4);
   let swapped = false;
 
   animateFrames(320, (t) => {
@@ -751,7 +866,7 @@ function startExpand(data){
     backdrop.setAttribute('fill', `rgba(15,20,26,${0.6 * ease})`);
     if (t > 0.5){
       if (!swapped){ swapped = true; }
-      text.innerHTML = tspanLines(lines, cx, cy, 9.5);
+      text.innerHTML = tspanLines(lines, cx, cy, 13);
       text.style.opacity = String(Math.min(1, (t - 0.5) / 0.5));
     }
   });
@@ -837,11 +952,11 @@ document.getElementById('filters').addEventListener('click', (e) => {
   btn.classList.add('active');
   currentRange = btn.dataset.range;
   document.getElementById('customRange').classList.toggle('show', currentRange === 'custom');
-  renderChart();
+  transitionChart();
 });
 
-document.getElementById('customStart').addEventListener('change', renderChart);
-document.getElementById('customEnd').addEventListener('change', renderChart);
+document.getElementById('customStart').addEventListener('change', transitionChart);
+document.getElementById('customEnd').addEventListener('change', transitionChart);
 
 // Sort controls
 document.getElementById('sortControls').addEventListener('click', (e) => {
