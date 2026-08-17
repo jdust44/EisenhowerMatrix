@@ -73,11 +73,11 @@
     border:1px solid var(--grid-line);
     color: var(--paper);
     font-family:'IBM Plex Mono', monospace;
-    font-size:11.5px;
+    font-size:9.2px;
     letter-spacing:0.03em;
     text-transform:uppercase;
-    padding:8px 12px;
-    border-radius:20px;
+    padding:6.4px 9.6px;
+    border-radius:16px;
     cursor:pointer;
     transition: all 0.15s ease;
   }
@@ -134,16 +134,25 @@
   }
   .node-label-in{
     font-family:'IBM Plex Mono', monospace;
-    font-size:6.3px;
+    font-size:9.5px;
     font-weight:700;
     fill: var(--ink);
     pointer-events:none;
   }
   .node-label-expand{
     font-family:'IBM Plex Mono', monospace;
-    font-size:9.5px;
+    font-size:11.5px;
     font-weight:700;
     fill: var(--ink);
+    pointer-events:none;
+    transition: opacity 0.15s ease;
+  }
+  .node-date-expand{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:9px;
+    font-weight:600;
+    fill: var(--ink);
+    fill-opacity:0.75;
     pointer-events:none;
     transition: opacity 0.15s ease;
   }
@@ -558,7 +567,7 @@ function render(){
 }
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const R_BASE = 24;
+const R_BASE = 48;
 const CHART_W = 400, CHART_H = 440;
 const CHART_MARGIN_L = 46, CHART_MARGIN_R = 14, CHART_MARGIN_T = 14, CHART_MARGIN_B = 34;
 const CHART_PLOT_W = CHART_W - CHART_MARGIN_L - CHART_MARGIN_R;
@@ -647,7 +656,7 @@ function computeBubbleLayout(startDay, endDay){
 
       allNodes.push({
         id: t.id, x, y: BAND_CENTERS[band], r: R_BASE,
-        color: PRIO_COLOR[band], lines: wrapLabel(t.name, 8, 2), name: t.name
+        color: PRIO_COLOR[band], lines: wrapLabel(t.name, 8, 2), name: t.name, date: t.date
       });
     });
   });
@@ -657,7 +666,7 @@ function computeBubbleLayout(startDay, endDay){
 function nodeMarkup(n){
   return `<g class="chart-node" data-id="${n.id}">
     <circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" stroke="var(--panel)" stroke-width="1.5"/>
-    <text text-anchor="middle" class="node-label-in">${tspanLines(n.lines, n.x, n.y, 8.5)}</text>
+    <text text-anchor="middle" class="node-label-in">${tspanLines(n.lines, n.x, n.y, 9.5)}</text>
   </g>`;
 }
 
@@ -740,7 +749,7 @@ function transitionChart(){
       el.setAttribute('data-id', id);
       el.style.opacity = '0';
       el.innerHTML = `<circle cx="${n.x}" cy="${n.y}" r="${n.r}" fill="${n.color}" stroke="var(--panel)" stroke-width="1.5"/>
-        <text text-anchor="middle" class="node-label-in">${tspanLines(n.lines, n.x, n.y, 8.5)}</text>`;
+        <text text-anchor="middle" class="node-label-in">${tspanLines(n.lines, n.x, n.y, 9.5)}</text>`;
       el.addEventListener('click', () => handleBubbleTap(id));
       svg.appendChild(el);
       animateFrames(280, t => { el.style.opacity = String(easeOutCubic(t)); });
@@ -783,7 +792,7 @@ function transitionChart(){
       const circle = m.g.querySelector('circle');
       const text = m.g.querySelector('text');
       if (circle){ circle.setAttribute('cx', cx); circle.setAttribute('cy', cy); }
-      if (text){ text.innerHTML = tspanLines(m.node.lines, cx, cy, 8.5); }
+      if (text){ text.innerHTML = tspanLines(m.node.lines, cx, cy, 9.5); }
     });
   }, () => {
     chartTransitioning = false;
@@ -845,14 +854,20 @@ function startExpand(data){
   text.setAttribute('text-anchor', 'middle');
   text.classList.add('node-label-expand');
   text.style.opacity = '0';
+  const dateText = document.createElementNS(SVG_NS, 'text');
+  dateText.setAttribute('text-anchor', 'middle');
+  dateText.classList.add('node-date-expand');
+  dateText.style.opacity = '0';
   g.appendChild(circle);
   g.appendChild(text);
+  g.appendChild(dateText);
   g.addEventListener('click', (e) => { e.stopPropagation(); collapseBubble(); });
   svg.appendChild(g);
 
   expandedNode = { id: data.id, g, backdrop, orig, x: data.x, y: data.y, r: data.r };
 
   const lines = wrapLabel(data.name, 11, 4);
+  const dateLabel = data.date ? fmtDate(data.date) : '';
   let swapped = false;
 
   animateFrames(320, (t) => {
@@ -866,8 +881,14 @@ function startExpand(data){
     backdrop.setAttribute('fill', `rgba(15,20,26,${0.6 * ease})`);
     if (t > 0.5){
       if (!swapped){ swapped = true; }
-      text.innerHTML = tspanLines(lines, cx, cy, 13);
-      text.style.opacity = String(Math.min(1, (t - 0.5) / 0.5));
+      const nameBlockY = cy - 7;
+      text.innerHTML = tspanLines(lines, cx, nameBlockY, 11.5);
+      dateText.setAttribute('x', cx);
+      dateText.setAttribute('y', nameBlockY + lines.length * 11.5 * 1.2 + 4);
+      dateText.textContent = dateLabel;
+      const fadeT = String(Math.min(1, (t - 0.5) / 0.5));
+      text.style.opacity = fadeT;
+      dateText.style.opacity = fadeT;
     }
   });
 }
